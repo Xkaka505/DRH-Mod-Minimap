@@ -1,0 +1,10 @@
+{
+  "id": "minimap",
+  "name": "Minimap",
+  "description": "What the mod does, in one line.",
+  "version": "0.1.0",
+  "author": "Xk",
+  "api": "1.0",
+  "entry": "Main",
+  "uses": []
+}
