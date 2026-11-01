@@ -12,7 +12,10 @@ Color code:
 - Purple = Kill Gate (Gate will open after you kill spawned npc)
 - Cyan = Breakable Gate (You have to break a prop to get to the gate)
 - Green = It's already open, rush !
-- Red/grey = Closed Gate/Unknow Gate (won't stay once i fixed everything)
+- Red = Closed Gate 
+- Grey = Unknow Gate
+
+Color red and grey won't stay here once every gate is fixed
 
 Todo:
 - Move the minimap (it's actually poorly placed in 0, 0)
