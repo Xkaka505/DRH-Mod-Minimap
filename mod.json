@@ -7,5 +7,5 @@
   "api": "1.1",
   "entry": "Main",
   "uses": ["extends"],
-  "drh": ["15"]
+  "drh": "15"
 }
