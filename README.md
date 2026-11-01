@@ -1,7 +1,9 @@
 # Minimap
 
-<!-- drh:show -->
 A mod for [Dungeon Rampage Haxe](https://github.com/Tutez64/Dungeon-Rampage-Haxe): Walk through any dungeon, but with a minimap
+
+<!-- drh:show -->
+This mod will show you every tiles that is generated on your floor
 - Still in WIP but it's usable 
 - Show where is the gate and what kind of gate it is (Kill/Plate/Open/Breakable)
 
@@ -10,7 +12,7 @@ Color code:
 - Purple = Kill Gate (Gate will open after you kill spawned npc)
 - Cyan = Breakable Gate (You have to break a prop to get to the gate)
 - Green = It's already open, rush !
-- Red = Closed Gate (won't stay once i fixed everything)
+- Red/grey = Closed Gate/Unknow Gate (won't stay once i fixed everything)
 
 Todo:
 - Move the minimap (it's actually poorly placed in 0, 0)

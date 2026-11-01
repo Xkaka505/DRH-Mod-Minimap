@@ -1,10 +1,11 @@
 {
   "id": "minimap",
   "name": "Minimap",
-  "description": "",
+  "description": "Minimap for dungeon rampage",
   "version": "0.1.0",
   "author": "Xk",
-  "api": "1.0",
+  "api": "1.1",
   "entry": "Main",
-  "uses": []
+  "uses": ["extends"],
+  "drh": ["15"]
 }
