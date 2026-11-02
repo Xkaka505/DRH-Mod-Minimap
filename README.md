@@ -13,13 +13,13 @@ Color code:
 - Cyan = Breakable Gate (You have to break a prop to get to the gate)
 - Green = It's already open, rush !
 - Red = Closed Gate 
-- Grey = Unknow Gate
+- Grey = Unknown Gate
 
 Color red and grey won't stay here once every gate is fixed
 
 Todo:
-- Move the minimap (it's actually poorly placed in 0, 0)
-- Fix every exit gate condition (Arena should be 100% accurate in all of his exit)
-- Gold 
-- Clear everything that i don't use anymore (shouldn't impact anything for the user)
+- Fix every exits gates condition (Arena should be 100% accurate in all of his exit)
+- Clear everything that i don't use anymore (shouldn't have any impact  for the user)
+
+if you have any problem you can ping/pm me in discord: caca_10782
 <!-- /drh:show -->

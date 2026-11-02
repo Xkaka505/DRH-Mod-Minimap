@@ -3,6 +3,7 @@ package mods.minimap;
 import mods.api.Context;
 import openfl.display.Sprite;
 import openfl.events.Event;
+import openfl.events.MouseEvent;
 import openfl.geom.Vector3D;
 import openfl.text.TextField;
 import openfl.text.TextFormat;
@@ -10,6 +11,7 @@ import openfl.Lib;
 import distributedObjects.DistributedDungeonFloor;
 
 class Minimap extends Sprite {
+	// Layout
 	static inline var MAP_W = 180.;
 	static inline var MAP_H = 180.;
 	static inline var HEADER_H = 28.;
@@ -18,19 +20,30 @@ class Minimap extends Sprite {
 	static inline var PANEL_W = MAP_W + PAD * 2;
 	static inline var PANEL_H = MAP_H + HEADER_H + FOOTER_H + PAD * 2;
 	static inline var TILE_SIZE = 900.;
+	static inline var MARGIN = 10.;
+
+	// Exit gate states
+	static inline var GATE_UNKNOWN = 0; // no gate object found
+	static inline var GATE_CLOSED = 1;
+	static inline var GATE_OPEN = 2;
+	static inline var GATE_BREAK = 3;
+
+	// Refresh rates
+	static inline var MONSTER_EVERY = 6; // frames between monster dot refreshes
+	static inline var GATE_CHECK_EVERY = 30; // frames between gate state checks
 
 	var ctx:Context;
 	var refs:Refs;
 	var startTime:Int;
 
 	var map:Sprite = new Sprite();
+	var monsterLayer:Sprite = new Sprite();
 	var playerMarker:Sprite = new Sprite();
 	var markersByHero:Map<Int, Sprite> = new Map();
 
 	var timerLabel:TextField;
 	var floorLabel:TextField;
 	var goldLabel:TextField;
-	var goldEarned = 0;
 
 	/** Library tile id -> "PLATE" / "KILLS" / "PLATE_KILLS" / "OTHER" / "NONE", generated from the level JSON files. */
 	var exitModes:Map<String, String> = new Map();
@@ -38,15 +51,11 @@ class Minimap extends Sprite {
 	/** Open mode of each exit tile of the current floor, by position. */
 	var exitModeByKey:Map<String, String> = new Map();
 
-    function isGateSuffix(s:Int):Bool
-        return s == 101 || s == 201;
+	/** Positions ("x,y") of the exit tiles of the current floor. */
+	var exitKeys:Map<String, Bool> = new Map();
 
-    // Exit gate states
-    static inline var GATE_UNKNOWN = 0; // no gate object found
-    static inline var GATE_CLOSED = 1;
-    static inline var GATE_OPEN = 2;
-	static inline var GATE_BREAK = 3; 
-    var exitState = "";
+	/** One digit per exit tile (see GATE_* constants), compared to detect gate changes. */
+	var exitState = "";
 
 	// Drawing state
 	var ready = false;
@@ -58,20 +67,26 @@ class Minimap extends Sprite {
 
 	// Redraw triggers
 	var drawnFloor:Dynamic = null;
-	var tileCount = -1;
-	var exitCount = -1;
 	var checkFrames = 0;
+	var monsterFrames = 0;
 
-	/** Positions ("x,y") of the exit tiles of the current floor. */
-	var exitKeys:Map<String, Bool> = new Map();
+	// Panel position: top-right anchor plus the offset set by dragging
+	var offsetX = 0.;
+	var offsetY = 0.;
+	var lastViewW = -1.;
+	var lastViewH = -1.;
+	var dragging = false;
+	var dragDX = 0.;
+	var dragDY = 0.;
 
 	public function new(ctx:Context, refs:Refs, startTime:Int) {
 		super();
 		this.ctx = ctx;
 		this.refs = refs;
 		this.startTime = startTime;
-		mouseEnabled = false;
-		mouseChildren = false;
+		mouseEnabled = true; // needed to receive the drag
+		mouseChildren = false; // the panel itself is the only target
+		addEventListener(MouseEvent.MOUSE_DOWN, onDragStart);
 
 		// Panel background and separators
 		graphics.beginFill(0x101820, 0.88);
@@ -101,8 +116,8 @@ class Minimap extends Sprite {
 		goldLabel = label(new TextFormat("Arial", 12, 0xFFD700, true), PAD, HEADER_H + MAP_H + PAD, PANEL_W - PAD * 2);
 		goldLabel.text = "Gold : --";
 		loadExitModes();
+		updatePosition();
 		addEventListener(Event.ENTER_FRAME, onFrame);
-		// TODO: subscribe to the game's gold event here and call addGold()
 	}
 
 	function label(fmt:TextFormat, x:Float, y:Float, w:Float):TextField {
@@ -118,10 +133,63 @@ class Minimap extends Sprite {
 		return t;
 	}
 
-	public function addGold(amount:Int):Void {
-		if (amount <= 0) return;
-		goldEarned += amount;
-		goldLabel.text = "Gold : " + goldEarned;
+	/** Called by Main each time the game reports the gold (and when a new floor creates this minimap). */
+	public function setGold(amount:Int):Void {
+		goldLabel.text = "Gold : " + amount;
+	}
+
+	// ------------------------------------------------------------ panel position
+
+	/** Top-right anchor plus the user's drag offset, clamped to the window. Runs again when the window size changes. */
+	function updatePosition():Void {
+		var w:Float = ctx.viewWidth;
+		var h:Float = ctx.viewHeight;
+		if (w == lastViewW && h == lastViewH) return;
+		lastViewW = w;
+		lastViewH = h;
+		x = Math.max(0, Math.min(w - PANEL_W, w - PANEL_W - MARGIN + offsetX));
+		y = Math.max(0, Math.min(h - PANEL_H, MARGIN + offsetY));
+	}
+
+	/** Restores a saved offset (Main keeps it across floors, since each floor creates a new minimap). */
+	public function setOffset(dx:Float, dy:Float):Void {
+		offsetX = dx;
+		offsetY = dy;
+		lastViewW = -1; // forces updatePosition to recompute
+		updatePosition();
+	}
+
+	public function getOffsetX():Float
+		return offsetX;
+
+	public function getOffsetY():Float
+		return offsetY;
+
+	function onDragStart(e:MouseEvent):Void {
+		if (stage == null || parent == null) return;
+		dragging = true;
+		dragDX = parent.mouseX - x;
+		dragDY = parent.mouseY - y;
+		stage.addEventListener(MouseEvent.MOUSE_MOVE, onDragMove);
+		stage.addEventListener(MouseEvent.MOUSE_UP, onDragEnd);
+	}
+
+	function onDragMove(e:MouseEvent):Void {
+		if (parent == null) return;
+		var w:Float = ctx.viewWidth;
+		var h:Float = ctx.viewHeight;
+		x = Math.max(0, Math.min(w - PANEL_W, parent.mouseX - dragDX));
+		y = Math.max(0, Math.min(h - PANEL_H, parent.mouseY - dragDY));
+		// Stored relative to the anchor so it survives window resizes
+		offsetX = x - (w - PANEL_W - MARGIN);
+		offsetY = y - MARGIN;
+	}
+
+	function onDragEnd(e:MouseEvent):Void {
+		dragging = false;
+		if (stage == null) return;
+		stage.removeEventListener(MouseEvent.MOUSE_MOVE, onDragMove);
+		stage.removeEventListener(MouseEvent.MOUSE_UP, onDragEnd);
 	}
 
 	// ----------------------------------------------------------------- game data
@@ -172,12 +240,15 @@ class Minimap extends Sprite {
 		return n;
 	}
 
-    /** Last 4 digits of an NPC type in the 2xxxxxx range used by gate/plate props, -1 otherwise. */
-    function typeSuffix(type:Dynamic):Int {
-        var t = Std.parseInt(Std.string(type));
-        if (t == null || t < 2000000 || t >= 3000000) return -1;
-        return t % 10000;
-    }
+	function isGateSuffix(s:Int):Bool
+		return s == 101 || s == 201;
+
+	/** Last 4 digits of an NPC type in the 2xxxxxx range used by gate/plate props, -1 otherwise. */
+	function typeSuffix(type:Dynamic):Int {
+		var t = Std.parseInt(Std.string(type));
+		if (t == null || t < 2000000 || t >= 3000000) return -1;
+		return t % 10000;
+	}
 
 	/** True when the exit is blocked by a trap only (mode ends with _TRAP). */
 	function isTrapOnly(mode:String):Bool
@@ -226,7 +297,6 @@ class Minimap extends Sprite {
 		if (state == GATE_BREAK) return 0x2EC4D6; // cyan: destroy the gate
 		if (state == GATE_CLOSED) {
 			if (mode == "PLATE") return 0xF0A030; // orange: step on a plate / rushable
-			if (mode == "KILLS") return 0xE8D44D; // yellow: kill the monsters
 			if (mode == "PLATE_KILLS") return 0x9B59D0; // purple: spawn monster, then kill
 			return 0xD93636; // red: unknown way to open it
 		}
@@ -234,40 +304,25 @@ class Minimap extends Sprite {
 	}
 
 	function loadExitModes():Void {
-	try {
-		var d:Dynamic = haxe.Json.parse(sys.io.File.getContent(ctx.resources + "/exit_modes.json"));
-		for (id in Reflect.fields(d)) exitModes.set(id, Std.string(Reflect.field(d, id)));
-		ctx.log("minimap: " + Lambda.count(exitModes) + " exit tile modes loaded");
-	} catch (e:Dynamic) {
-		ctx.log("minimap: could not read exit_modes.json: " + Std.string(e));
-	}
-	}
-
-    /** One digit per exit tile (see GATE_* constants); changes when a gate or plate changes state. */
-    function exitStateKey():String {
-        var s = "";
-        var positions = getTilePositions();
-        if (positions == null) return s;
-        for (p in positions)
-            if (isExitTile(p)) s += gateState(p);
-        return s;
-    }
-
-	function getLocalHeroPosition():Vector3D {
-		for (h in ctx.state.heroes)
-			if (h.local) return new Vector3D(h.x, h.y);
-		return null;
+		try {
+			var d:Dynamic = haxe.Json.parse(sys.io.File.getContent(ctx.resources + "/exit_modes.json"));
+			for (id in Reflect.fields(d)) exitModes.set(id, Std.string(Reflect.field(d, id)));
+			ctx.log("minimap: " + Lambda.count(exitModes) + " exit tile modes loaded");
+		} catch (e:Dynamic) {
+			ctx.log("minimap: could not read exit_modes.json: " + Std.string(e));
+		}
 	}
 
-	function getHeroPosition(heroId:Int):Vector3D {
-		for (h in ctx.state.heroes)
-			if (h.id == heroId) return new Vector3D(h.x, h.y);
-		return null;
+	/** One digit per exit tile (see GATE_* constants); changes when a gate or plate changes state. */
+	function exitStateKey():String {
+		var s = "";
+		var positions = getTilePositions();
+		if (positions == null) return s;
+		for (p in positions)
+			if (isExitTile(p)) s += gateState(p);
+		return s;
 	}
 
-	var monsterLayer:Sprite = new Sprite(); // add it with addChild(monsterLayer) in the constructor
-
-    // test mobs on map
 	function updateMonsters():Void {
 		monsterLayer.graphics.clear();
 		monsterLayer.graphics.beginFill(0xFF5555, 0.9);
@@ -282,6 +337,9 @@ class Minimap extends Sprite {
 
 	function onFrame(_):Void {
 		if (!ctx.core.alive) return;
+		updatePosition();
+		if (!visible) return; // hidden with M: skip all the work below
+
 		updateTimer();
 
 		var f = currentFloor();
@@ -295,25 +353,22 @@ class Minimap extends Sprite {
 		if (!ready) drawDungeonIfReady();
 
 		if (ready) {
-			updatePlayerMarker();
-			updateAllyMarkers();
-			updateMonsters();
+			updateHeroMarkers();
+			// Reading floor.monsters is expensive (it walks every object on the floor),
+			// so the monster dots are refreshed only every few frames
+			if (monsterFrames++ % MONSTER_EVERY == 0) updateMonsters();
 		}
 
-		// Every 30 frames, redraw if the grid grew or the exit count changed
-		if (ready && ++checkFrames % 30 == 0) {
-			refreshExitKeys();
-			var tiles = getTilePositions();
-            if ((tiles == null ? 0 : tiles.length) != tileCount || countExits() != exitCount || exitStateKey() != exitState)
-                ready = false;
-		}
+		// Redraw when a gate or plate changed state. The tiles are complete from
+		// onFloorEnter on, so only the exit states can change within a floor.
+		if (ready && ++checkFrames % GATE_CHECK_EVERY == 0 && exitStateKey() != exitState)
+			ready = false;
 	}
 
 	function updateTimer():Void {
 		var s = Std.int((Lib.getTimer() - startTime) / 1000);
 		timerLabel.text = pad2(Std.int(s / 3600)) + ":" + pad2(Std.int(s % 3600 / 60)) + ":" + pad2(s % 60);
 	}
-	
 
 	inline function pad2(n:Int):String
 		return n < 10 ? "0" + n : "" + n;
@@ -337,7 +392,7 @@ class Minimap extends Sprite {
 		offX = (MAP_W - worldW * scale) * 0.5;
 		offY = (MAP_H - worldH * scale) * 0.5;
 
-		// Draw the tiles, exit tiles in red
+		// Draw the tiles, exit tiles colored by gate state
 		var tw = Math.max(2, TILE_SIZE * scale - 1);
 		map.graphics.clear();
 		for (p in positions) {
@@ -352,27 +407,25 @@ class Minimap extends Sprite {
 			map.graphics.endFill();
 		}
 
-		exitCount = countExits();
-        exitState = exitStateKey();
-		tileCount = positions.length;
+		exitState = exitStateKey();
 		drawnFloor = currentFloor();
-		ctx.log("minimap: tiles=" + positions.length + " exits=" + exitCount + " gates=" + exitState);
+		ctx.log("minimap: tiles=" + positions.length + " exits=" + countExits() + " gates=" + exitState);
+		monsterFrames = 0; // the next frame refreshes the monster dots right away
+		monsterLayer.graphics.clear(); // no stale dots from the previous floor
 		ready = true;
 	}
 
-	function updatePlayerMarker():Void {
-		var pos = getLocalHeroPosition();
-		if (pos == null) return;
-		playerMarker.x = PAD + offX + (pos.x - minX) * scale;
-		playerMarker.y = HEADER_H + PAD + offY + (pos.y - minY) * scale;
-	}
-
-	function updateAllyMarkers():Void {
+	/** Moves the player marker and the ally markers in a single pass over the heroes. */
+	function updateHeroMarkers():Void {
 		for (m in markersByHero) m.visible = false;
 		for (hero in ctx.state.heroes) {
-			if (hero.local) continue;
-			var pos = getHeroPosition(hero.id);
-			if (pos == null) continue;
+			var mx = PAD + offX + (hero.x - minX) * scale;
+			var my = HEADER_H + PAD + offY + (hero.y - minY) * scale;
+			if (hero.local) {
+				playerMarker.x = mx;
+				playerMarker.y = my;
+				continue;
+			}
 			var marker = markersByHero.get(hero.id);
 			if (marker == null) {
 				marker = new Sprite();
@@ -388,13 +441,15 @@ class Minimap extends Sprite {
 				markersByHero.set(hero.id, marker);
 				addChild(marker);
 			}
-			marker.x = PAD + offX + (pos.x - minX) * scale;
-			marker.y = HEADER_H + PAD + offY + (pos.y - minY) * scale;
+			marker.x = mx;
+			marker.y = my;
 			marker.visible = true;
 		}
 	}
 
 	public function destroy():Void {
+		removeEventListener(MouseEvent.MOUSE_DOWN, onDragStart);
+		if (dragging) onDragEnd(null);
 		removeEventListener(Event.ENTER_FRAME, onFrame);
 		graphics.clear();
 		map.graphics.clear();
@@ -403,8 +458,10 @@ class Minimap extends Sprite {
 		monsterLayer.graphics.clear();
 	}
 
-    /** Snapshot taken by the first F6, compared by the second. */
-    var snapshot:Map<String, Array<String>> = null;
+	// ------------------------------------------------------------------- debug (F6)
+
+	/** Snapshot taken by the first F6, compared by the second. */
+	var snapshot:Map<String, Array<String>> = null;
 
 	/** Debug (F6): 1st press lists the NPCs on exit tiles, 2nd press logs what changed or disappeared. */
 	public function dumpExitObjects():Void {
@@ -477,24 +534,24 @@ class Minimap extends Sprite {
 		}
 	}
 
-    /** Reads a property as a string, "?" if it fails. */
-    function g(o:Dynamic, name:String):String {
-        try {
-            return Std.string(Reflect.getProperty(o, name));
-        } catch (_:Dynamic) {
-            return "?";
-        }
-    }
+	/** Reads a property as a string, "?" if it fails. */
+	function g(o:Dynamic, name:String):String {
+		try {
+			return Std.string(Reflect.getProperty(o, name));
+		} catch (_:Dynamic) {
+			return "?";
+		}
+	}
 
-        /** Turns an Array or any object with iterator() into an Array. */
-    function toArray(coll:Dynamic):Array<Dynamic> {
-        var out:Array<Dynamic> = [];
-        if (coll == null) return out;
-        try {
-            if (Std.isOfType(coll, Array)) return coll;
-            var it:Dynamic = Reflect.callMethod(coll, Reflect.field(coll, "iterator"), []);
-            while (it.hasNext()) out.push(it.next());
-        } catch (_:Dynamic) {}
-        return out;
-    }
+	/** Turns an Array or any object with iterator() into an Array. */
+	function toArray(coll:Dynamic):Array<Dynamic> {
+		var out:Array<Dynamic> = [];
+		if (coll == null) return out;
+		try {
+			if (Std.isOfType(coll, Array)) return coll;
+			var it:Dynamic = Reflect.callMethod(coll, Reflect.field(coll, "iterator"), []);
+			while (it.hasNext()) out.push(it.next());
+		} catch (_:Dynamic) {}
+		return out;
+	}
 }

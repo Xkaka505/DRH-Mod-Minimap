@@ -1,8 +1,8 @@
 {
   "id": "minimap",
   "name": "Minimap",
-  "description": "Minimap for dungeon rampage",
-  "version": "0.1.0",
+  "description": "A minimap of the floor, with every room and its exits colored by how they open.",
+  "version": "0.2.0",
   "author": "Xk",
   "api": "1.1",
   "entry": "Main",
