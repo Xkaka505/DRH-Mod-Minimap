@@ -10,6 +10,7 @@ import distributedObjects.PlayerGameObjectOwner;
 class Main extends Mod {
 	static inline final F6 = 117;
 	static inline final F7 = 118;
+	static inline final F8 = 119;
 
 	// Debug probe (F7): counts the game's events between two presses
 	var probeSubs:Array<Dynamic> = null;
@@ -118,6 +119,10 @@ class Main extends Mod {
 			toggleProbe();
 			return true;
 		}
+		if (key == F8 && minimap != null) {
+		minimap.logExitTileId();
+		return true;
+	}
 		return false;
 	}
 

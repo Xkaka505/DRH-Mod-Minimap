@@ -2,10 +2,10 @@
   "id": "minimap",
   "name": "Minimap",
   "description": "A minimap of the floor, with every room and its exits colored by how they open.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "Xk",
-  "api": "1.1",
+  "api": "1.2.1",
   "entry": "Main",
   "uses": ["extends"],
-  "drh": "15"
+  "drh": "16"
 }

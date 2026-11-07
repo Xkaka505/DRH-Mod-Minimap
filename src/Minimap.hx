@@ -458,6 +458,21 @@ class Minimap extends Sprite {
 		monsterLayer.graphics.clear();
 	}
 
+	/** F8: logs the library id and mode of the exit tile(s) of the current floor. */
+	public function logExitTileId():Void {
+		var floor = ctx.state.floor;
+		if (floor == null) return;
+		var count = 0;
+		for (t in floor.tiles) {
+			if (t.category != "EXIT_TILE") continue;
+			count++;
+			var mode = exitModes.get(Std.string(t.id));
+			ctx.log("minimap: exit tile id " + t.id + " mode=" + (mode == null ? "not in exit_modes.json" : mode)
+				+ " at (" + Std.int(t.x) + "," + Std.int(t.y) + ") on " + Std.string(floor.map));
+		}
+		if (count == 0) ctx.log("minimap: no exit tile on this floor");
+	}
+
 	// ------------------------------------------------------------------- debug (F6)
 
 	/** Snapshot taken by the first F6, compared by the second. */
